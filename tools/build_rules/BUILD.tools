@@ -3,3 +3,5 @@ filegroup(
     srcs = glob(["*.bzl"]),
     visibility = ["//tools:__pkg__"],
 )
+
+exports_files(["bazel_prelude"])

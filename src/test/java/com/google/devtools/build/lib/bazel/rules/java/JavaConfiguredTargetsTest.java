@@ -74,6 +74,9 @@ public final class JavaConfiguredTargetsTest extends BuildViewTestCase {
 
   @Test
   public void testResourceStripPrefix() throws Exception {
+    scratch.file("embedded_tools/build_rules/BUILD", "");
+    scratch.file("embedded_tools/build_rules/bazel_prelude",
+        "load('@rules_java//java:defs.bzl', 'java_binary')");
     scratch.file(
         "a/BUILD",
         """

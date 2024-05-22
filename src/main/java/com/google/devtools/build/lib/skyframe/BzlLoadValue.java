@@ -239,12 +239,7 @@ public class BzlLoadValue implements SkyValue {
 
     @Override
     Key getKeyForLoad(Label loadLabel) {
-      // Note that the returned key always has !isBuildPrelude. I.e., if the prelude file loads
-      // another .bzl, the loaded .bzl is processed as normal with no special prelude magic. This is
-      // because 1) only the prelude file, not its dependencies, should automatically re-export its
-      // loaded symbols; and 2) we don't want prelude-loaded modules to end up cloned if they're
-      // also loaded through normal means.
-      return keyForBuild(loadLabel);
+      return isBuildPrelude ? keyForBuildPrelude(loadLabel): keyForBuild(loadLabel);
     }
 
     @Override

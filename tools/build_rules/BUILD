@@ -15,6 +15,7 @@ filegroup(
     name = "embedded_tools_srcs",
     srcs = [
         "BUILD.tools",
+        "bazel_prelude",
         "java_rules_skylark.bzl",
         "test_rules.bzl",
         "test_rules_private.bzl",

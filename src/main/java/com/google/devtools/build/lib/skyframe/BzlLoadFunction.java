@@ -44,6 +44,8 @@ import com.google.devtools.build.lib.packages.BzlInitThreadContext;
 import com.google.devtools.build.lib.packages.BzlVisibility;
 import com.google.devtools.build.lib.packages.RuleClassProvider;
 import com.google.devtools.build.lib.packages.StarlarkExportable;
+import com.google.devtools.build.lib.packages.StarlarkInfoNoSchema;
+import com.google.devtools.build.lib.packages.StructProvider;
 import com.google.devtools.build.lib.packages.WorkspaceFileValue;
 import com.google.devtools.build.lib.packages.semantics.BuildLanguageOptions;
 import com.google.devtools.build.lib.server.FailureDetails.StarlarkLoading.Code;
@@ -832,9 +834,19 @@ public class BzlLoadFunction implements SkyFunction {
       repoMappingRecorder.mergeEntries(v.getRecordedRepoMappings());
     }
 
+    ImmutableMap<String, Object> preludeBindings = ImmutableMap.of();
+    if (!key.isBuildPrelude() && !key.isBuiltins()) {
+      Module preludeModule = PackageFunction.loadPrelude(env,
+          ruleClassProvider.getToolsLabel("//build_rules:bazel_prelude"), null);
+      if (preludeModule == null) {
+        return null; // skyframe restart
+      }
+      preludeBindings = preludeModule.getGlobals();
+    }
+
     // Retrieve predeclared symbols and complete the digest computation.
     ImmutableMap<String, Object> predeclared =
-        getAndDigestPredeclaredEnvironment(key, builtins, fp);
+        getAndDigestPredeclaredEnvironment(key, builtins, preludeBindings, fp);
     if (predeclared == null) {
       return null;
     }
@@ -1330,7 +1342,8 @@ public class BzlLoadFunction implements SkyFunction {
    */
   @Nullable
   private ImmutableMap<String, Object> getAndDigestPredeclaredEnvironment(
-      BzlLoadValue.Key key, StarlarkBuiltinsValue builtins, Fingerprint fp) {
+      BzlLoadValue.Key key, StarlarkBuiltinsValue builtins,
+      ImmutableMap<String, Object> extraNatives, Fingerprint fp) {
     BazelStarlarkEnvironment starlarkEnv = ruleClassProvider.getBazelStarlarkEnvironment();
     if (key.isSclDialect()) {
       // .scl doesn't use injection and doesn't care what kind of key it is.
@@ -1347,7 +1360,25 @@ public class BzlLoadFunction implements SkyFunction {
           return starlarkEnv.getUninjectedBuildBzlEnv();
         }
         fp.addBytes(builtins.transitiveDigest);
-        return builtins.predeclaredForBuildBzl;
+        if (extraNatives.isEmpty()) {
+          return builtins.predeclaredForBuildBzl;
+        } else {
+          HashMap<String, Object> copy = new HashMap<>(builtins.predeclaredForBuildBzl);
+          StarlarkInfoNoSchema nativeModule = (StarlarkInfoNoSchema) copy.remove("native");
+          ImmutableMap.Builder<String, Object> nativeBindings = ImmutableMap.builder();
+          for (String f : nativeModule.getFieldNames()) {
+            if (extraNatives.containsKey(f)) {
+              nativeBindings.put(f, extraNatives.get(f));
+            } else {
+              nativeBindings.put(f, nativeModule.getValue(f));
+            }
+          }
+          return ImmutableMap.<String, Object>builder()
+              .putAll(copy)
+              .put("native",
+                  StructProvider.STRUCT.create(nativeBindings.build(), "no native function or rule '%s'"))
+              .build();
+        }
       } else if (key instanceof BzlLoadValue.KeyForWorkspace
           || key instanceof BzlLoadValue.KeyForBzlmod) {
         // TODO(#11954): We should converge all .bzl dialects regardless of whether they're loaded

@@ -694,14 +694,12 @@ public abstract class PackageFunction implements SkyFunction {
 
   // Loads the prelude identified by the label. Returns null for a skyframe restart.
   @Nullable
-  private static Module loadPrelude(
+  static Module loadPrelude(
       Environment env,
-      PackageIdentifier packageId,
       Label label,
       @Nullable BzlLoadFunction bzlLoadFunctionForInlining)
-      throws NoSuchPackageException, InterruptedException {
+      throws BzlLoadFailedException, InterruptedException {
     List<BzlLoadValue.Key> keys = ImmutableList.of(BzlLoadValue.keyForBuildPrelude(label));
-    try {
       List<BzlLoadValue> loads =
           bzlLoadFunctionForInlining == null
               ? computeBzlLoadsNoInlining(env, keys)
@@ -711,17 +709,6 @@ public abstract class PackageFunction implements SkyFunction {
       }
       // No need to validate visibility since we're processing an internal load on behalf of Bazel.
       return loads.get(0).getModule();
-
-    } catch (BzlLoadFailedException e) {
-      Throwable rootCause = Throwables.getRootCause(e);
-      throw PackageFunctionException.builder()
-          .setType(PackageFunctionException.Type.BUILD_FILE_CONTAINS_ERRORS)
-          .setPackageIdentifier(packageId)
-          .setException(rootCause instanceof IOException ? (IOException) rootCause : null)
-          .setMessage(e.getMessage())
-          .setPackageLoadingCode(PackageLoading.Code.IMPORT_STARLARK_FILE_ERROR)
-          .buildCause();
-    }
   }
 
   /**
@@ -981,9 +968,16 @@ public abstract class PackageFunction implements SkyFunction {
         preludeLabel = Label.createUnvalidated(preludePackage, rawPreludeLabel.getName());
         Module prelude;
         try {
-          prelude = loadPrelude(env, packageId, preludeLabel, bzlLoadFunctionForInlining);
-        } catch (NoSuchPackageException e) {
-          throw new PackageFunctionException(e, Transience.PERSISTENT);
+          prelude = loadPrelude(env, preludeLabel, bzlLoadFunctionForInlining);
+        } catch (BzlLoadFailedException e) {
+          Throwable rootCause = Throwables.getRootCause(e);
+          throw new PackageFunctionException(PackageFunctionException.builder()
+              .setType(PackageFunctionException.Type.BUILD_FILE_CONTAINS_ERRORS)
+              .setPackageIdentifier(packageId)
+              .setException(rootCause instanceof IOException ? (IOException) rootCause : null)
+              .setMessage(e.getMessage())
+              .setPackageLoadingCode(PackageLoading.Code.IMPORT_STARLARK_FILE_ERROR)
+              .buildCause(), Transience.PERSISTENT);
         }
         if (prelude == null) {
           return null; // skyframe restart
